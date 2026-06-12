@@ -167,9 +167,9 @@ def main():
         if not job:
             print("no job available, exiting")
             break
-        kw = job.get("keyword", "")
-        loc = job.get("location", "") or ""
-        url = job.get("url", "")
+        kw = (job.get("keyword") or "")
+        loc = (job.get("location") or "")
+        url = (job.get("url") or "")
         print(f"-> job {job['job_id']} {STAGE}/{job.get('provider','?')} src={job.get('source','?')} "
               f"kw={kw[:40]!r} loc={loc!r} url={url[:60]!r}")
         results, err = [], False
