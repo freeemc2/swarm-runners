@@ -20,6 +20,7 @@ jobs:
         env:
           MASTER_URL: https://elevatehomeprogram.com
           AGENT_KEY: ${{ secrets.AGENT_KEY }}
+          PROVIDER: gha-fetch
           SOURCE: web
           STAGE: fetch
           MAX_JOBS: '5'

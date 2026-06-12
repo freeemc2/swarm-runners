@@ -20,6 +20,7 @@ jobs:
         env:
           MASTER_URL: https://elevatehomeprogram.com
           AGENT_KEY: ${{ secrets.AGENT_KEY }}
+          PROVIDER: gha-ddg
           SOURCE: ddg
           STAGE: search
           MAX_JOBS: '4'

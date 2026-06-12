@@ -27,9 +27,10 @@ KEY = os.environ["AGENT_KEY"]
 SOURCE = os.environ.get("SOURCE", "ddg")
 STAGE = os.environ.get("STAGE", "search")
 MAX_JOBS = int(os.environ.get("MAX_JOBS", "3"))
-PROVIDER = "github-actions"
+# Each workflow has its own provider so a DDG runner can't grab a Google job.
+PROVIDER = os.environ.get("PROVIDER", f"gha-{SOURCE}")
 RUN_ID = os.environ.get("GITHUB_RUN_ID", str(int(time.time())))[-6:]
-NAME = f"gha-{SOURCE}-{RUN_ID}"
+NAME = f"{PROVIDER}-{RUN_ID}"
 
 H = {"X-Agent-Key": KEY, "Content-Type": "application/json"}
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
