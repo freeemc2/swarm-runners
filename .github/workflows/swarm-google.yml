@@ -1,0 +1,26 @@
+name: Swarm Google
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # every 15 min — slower because Google is hostile
+  workflow_dispatch: {}
+concurrency:
+  group: swarm-google
+  cancel-in-progress: false
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: deps
+        run: pip install -q -r requirements.txt
+      - name: run
+        env:
+          MASTER_URL: https://elevatehomeprogram.com
+          AGENT_KEY: ${{ secrets.AGENT_KEY }}
+          SOURCE: google
+          STAGE: search
+          MAX_JOBS: '3'
+        run: python swarm_runner.py

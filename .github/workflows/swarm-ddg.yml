@@ -1,0 +1,26 @@
+name: Swarm DDG
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # every 10 min (GitHub may delay; that's fine)
+  workflow_dispatch: {}
+concurrency:
+  group: swarm-ddg
+  cancel-in-progress: false
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: deps
+        run: pip install -q -r requirements.txt
+      - name: run
+        env:
+          MASTER_URL: https://elevatehomeprogram.com
+          AGENT_KEY: ${{ secrets.AGENT_KEY }}
+          SOURCE: ddg
+          STAGE: search
+          MAX_JOBS: '4'
+        run: python swarm_runner.py
