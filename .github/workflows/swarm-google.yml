@@ -23,5 +23,5 @@ jobs:
           PROVIDER: gha-google
           SOURCE: google
           STAGE: search
-          MAX_JOBS: '3'
+          MAX_JOBS: '8'
         run: python swarm_runner.py
