@@ -1,0 +1,23 @@
+name: GSM Metro Seeder
+on:
+  schedule:
+    - cron: '0 11 * * 1'
+  workflow_dispatch: {}
+concurrency:
+  group: gsm-seed
+  cancel-in-progress: false
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: deps
+        run: pip install -q requests beautifulsoup4
+      - name: seed metros
+        env:
+          INGEST_URL: https://garagesalemap.app/api/ingest
+          INGEST_KEY: ${{ secrets.GSM_INGEST_KEY }}
+        run: python gsm_seeder.py
