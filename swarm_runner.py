@@ -148,7 +148,15 @@ def search_google(keyword, location):
     if resp.status_code != 200:
         print(f"google HTTP {resp.status_code}")
         return []
+    body_len = len(resp.text)
+    # DIAG: what did google actually return?
+    body_low = resp.text.lower()
+    print(f"DIAG google[{keyword[:30]}]: {body_len}b, title={'title' in body_low}, captcha={'captcha' in body_low or 'unusual traffic' in body_low}, results={'search-results' in body_low or 'result-stats' in body_low}")
     soup = BeautifulSoup(resp.text, "html.parser")
+    all_hrefs = [a.get("href","")[:100] for a in soup.find_all("a", href=True)]
+    if all_hrefs:
+        non_g = [h for h in all_hrefs if "google" not in h.split("/")[0] and h.startswith(("http","/url"))]
+        print(f"DIAG hrefs={len(all_hrefs)} non_google={len(non_g)} sample_non_g={non_g[:3]}")
     out = []
     seen = set()
     for a in soup.find_all("a", href=True):
