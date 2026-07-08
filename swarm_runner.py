@@ -103,39 +103,45 @@ def search_ddg(keyword, location):
 
 
 def search_google(keyword, location):
-    # Light scrape of Google HTML. From GitHub runner IPs, much less blocked than
-    # from our VPS IPs — but still rate-limited; cron interval handles pacing.
+    # Per-site fanout: multi-site OR unreliable — search each intent site separately.
+    # Merged + deduped by URL. Aria fix 2026-07-08.
     from bs4 import BeautifulSoup
-    q = f'"{keyword}" {location} {INTENT_SITES}'.strip()
-    url = "https://www.google.com/search?" + urlparse.urlencode({"q": q, "num": "20", "hl": "en"})
-    resp = requests.get(url, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"}, timeout=25)
-    if resp.status_code != 200:
-        print(f"google HTTP {resp.status_code}")
-        return []
-    soup = BeautifulSoup(resp.text, "html.parser")
-    out = []
+    domains = ["reddit.com", "nextdoor.com", "facebook.com/groups", "craigslist.org"]
     seen = set()
-    # Google wraps real result links as /url?q=<encoded>&...
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        m = re.match(r"^/url\?q=([^&]+)", href)
-        if not m:
-            if href.startswith("http") and "google.com" not in href:
-                target = href
+    out = []
+    for domain in domains:
+        q = f'"{keyword}" {location} site:{domain}'.strip()
+        url = "https://www.google.com/search?" + urlparse.urlencode({"q": q, "num": "10", "hl": "en"})
+        try:
+            resp = requests.get(url, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"}, timeout=25)
+        except Exception as e:
+            print(f"google fail {domain}: {e}"); continue
+        if resp.status_code != 200:
+            print(f"google HTTP {resp.status_code} d={domain}"); continue
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            m = re.match(r"^/url\?q=([^&]+)", href)
+            if not m:
+                if href.startswith("http") and "google.com" not in href:
+                    target = href
+                else:
+                    continue
             else:
+                target = urlparse.unquote(m.group(1))
+            if target in seen or is_junk(target):
                 continue
-        else:
-            target = urlparse.unquote(m.group(1))
-        if target in seen or is_junk(target):
-            continue
-        # require it to be one of our intent sites
-        if not any(s in target for s in ["reddit.com", "facebook.com/groups", "nextdoor.com", "craigslist.org"]):
-            continue
-        title = a.get_text()[:160].strip()
-        if not title:
-            continue
-        out.append({"title": title, "url": target, "description": "", "location": location})
-        seen.add(target)
+            # confirm it's one of our intent domains (safety check)
+            if not any(d.split("/")[0] in target for d in domains):
+                continue
+            title = a.get_text()[:160].strip()
+            if not title:
+                continue
+            out.append({"title": title, "url": target, "description": "", "location": location})
+            seen.add(target)
+            if len(out) >= 12:
+                break
+        time.sleep(1.5)
         if len(out) >= 12:
             break
     return out
