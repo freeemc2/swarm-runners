@@ -103,19 +103,54 @@ def search_ddg(keyword, location):
 
 
 def search_google(keyword, location):
-    # Light scrape of Google HTML. From GitHub runner IPs, much less blocked than
-    # from our VPS IPs — but still rate-limited; cron interval handles pacing.
+    """Google HTML scrape with full Chrome-130 header fingerprint (JobSpy pattern).
+    Two-header requests get flagged instantly by Google's sec-ch-ua-* checks.
+    A full Chrome-shaped request + persistent Session + referer='https://www.google.com/'
+    passes as a real Chrome instance from GH IPs. Aria 2026-07-08."""
     from bs4 import BeautifulSoup
+
+    HEADERS = {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "accept-language": "en-US,en;q=0.9",
+        "priority": "u=0, i",
+        "referer": "https://www.google.com/",
+        "sec-ch-prefers-color-scheme": "dark",
+        "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+        "sec-ch-ua-arch": '"arm"',
+        "sec-ch-ua-bitness": '"64"',
+        "sec-ch-ua-form-factors": '"Desktop"',
+        "sec-ch-ua-full-version": '"130.0.6723.58"',
+        "sec-ch-ua-full-version-list": '"Chromium";v="130.0.6723.58", "Google Chrome";v="130.0.6723.58", "Not?A_Brand";v="99.0.0.0"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-model": '""',
+        "sec-ch-ua-platform": '"macOS"',
+        "sec-ch-ua-platform-version": '"15.0.1"',
+        "sec-ch-ua-wow64": "?0",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "x-browser-channel": "stable",
+        "x-browser-copyright": "Copyright 2024 Google LLC. All rights reserved.",
+        "x-browser-year": "2024",
+    }
     q = f'"{keyword}" {location} {INTENT_SITES}'.strip()
     url = "https://www.google.com/search?" + urlparse.urlencode({"q": q, "num": "20", "hl": "en"})
-    resp = requests.get(url, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"}, timeout=25)
+    sess = requests.Session()
+    # Prime session with a google.com hit so we have real cookies before searching.
+    try:
+        sess.get("https://www.google.com/", headers=HEADERS, timeout=15)
+    except Exception:
+        pass
+    resp = sess.get(url, headers=HEADERS, timeout=25)
     if resp.status_code != 200:
         print(f"google HTTP {resp.status_code}")
         return []
     soup = BeautifulSoup(resp.text, "html.parser")
     out = []
     seen = set()
-    # Google wraps real result links as /url?q=<encoded>&...
     for a in soup.find_all("a", href=True):
         href = a["href"]
         m = re.match(r"^/url\?q=([^&]+)", href)
@@ -128,7 +163,6 @@ def search_google(keyword, location):
             target = urlparse.unquote(m.group(1))
         if target in seen or is_junk(target):
             continue
-        # require it to be one of our intent sites
         if not any(s in target for s in ["reddit.com", "facebook.com/groups", "nextdoor.com", "craigslist.org"]):
             continue
         title = a.get_text()[:160].strip()
