@@ -103,47 +103,48 @@ def search_ddg(keyword, location):
 
 
 def search_google(keyword, location):
-    # Per-site fanout: multi-site OR unreliable — search each intent site separately.
-    # Merged + deduped by URL. Aria fix 2026-07-08.
+    # Single multi-site OR query — reverted from broken fanout. Google respects
+    # site: in most cases from GH IPs; if it doesn't, we log the raw links to
+    # diagnose. Aria 2026-07-08 (post-diagnostic pass).
     from bs4 import BeautifulSoup
-    domains = ["reddit.com", "nextdoor.com", "facebook.com/groups", "craigslist.org"]
-    seen = set()
+    q = f'"{keyword}" {location} {INTENT_SITES}'.strip()
+    url = "https://www.google.com/search?" + urlparse.urlencode({"q": q, "num": "20", "hl": "en"})
+    resp = requests.get(url, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"}, timeout=25)
+    if resp.status_code != 200:
+        print(f"google HTTP {resp.status_code}")
+        return []
+    soup = BeautifulSoup(resp.text, "html.parser")
     out = []
-    for domain in domains:
-        q = f'"{keyword}" {location} site:{domain}'.strip()
-        url = "https://www.google.com/search?" + urlparse.urlencode({"q": q, "num": "10", "hl": "en"})
-        try:
-            resp = requests.get(url, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"}, timeout=25)
-        except Exception as e:
-            print(f"google fail {domain}: {e}"); continue
-        if resp.status_code != 200:
-            print(f"google HTTP {resp.status_code} d={domain}"); continue
-        soup = BeautifulSoup(resp.text, "html.parser")
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            m = re.match(r"^/url\?q=([^&]+)", href)
-            if not m:
-                if href.startswith("http") and "google.com" not in href:
-                    target = href
-                else:
-                    continue
+    seen = set()
+    all_hrefs = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        all_hrefs.append(href[:120])
+        m = re.match(r"^/url\?q=([^&]+)", href)
+        if not m:
+            if href.startswith("http") and "google.com" not in href:
+                target = href
             else:
-                target = urlparse.unquote(m.group(1))
-            if target in seen or is_junk(target):
                 continue
-            # confirm it's one of our intent domains (safety check)
-            if not any(d.split("/")[0] in target for d in domains):
-                continue
-            title = a.get_text()[:160].strip()
-            if not title:
-                continue
-            out.append({"title": title, "url": target, "description": "", "location": location})
-            seen.add(target)
-            if len(out) >= 12:
-                break
-        time.sleep(1.5)
+        else:
+            target = urlparse.unquote(m.group(1))
+        if target in seen or is_junk(target):
+            continue
+        if not any(s in target for s in ["reddit.com", "facebook.com", "nextdoor.com", "craigslist.org"]):
+            continue
+        title = a.get_text()[:160].strip()
+        if not title:
+            continue
+        out.append({"title": title, "url": target, "description": "", "location": location})
+        seen.add(target)
         if len(out) >= 12:
             break
+    # DIAGNOSTIC: if no results, show a sample of hrefs we saw (to see if Google
+    # returned anything at all, or if intent domains are missing from results).
+    if not out and all_hrefs:
+        print(f"DIAG google[{keyword[:30]}]: {len(all_hrefs)} hrefs seen, first non-google 5:")
+        non_g = [h for h in all_hrefs if "google.com" not in h and h.startswith(("http", "/url"))][:5]
+        for h in non_g: print(f"  {h}")
     return out
 
 
