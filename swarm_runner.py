@@ -103,9 +103,8 @@ def search_ddg(keyword, location):
 
 
 def search_google(keyword, location):
-    # Single multi-site OR query — reverted from broken fanout. Google respects
-    # site: in most cases from GH IPs; if it doesn't, we log the raw links to
-    # diagnose. Aria 2026-07-08 (post-diagnostic pass).
+    # Light scrape of Google HTML. From GitHub runner IPs, much less blocked than
+    # from our VPS IPs — but still rate-limited; cron interval handles pacing.
     from bs4 import BeautifulSoup
     q = f'"{keyword}" {location} {INTENT_SITES}'.strip()
     url = "https://www.google.com/search?" + urlparse.urlencode({"q": q, "num": "20", "hl": "en"})
@@ -116,10 +115,9 @@ def search_google(keyword, location):
     soup = BeautifulSoup(resp.text, "html.parser")
     out = []
     seen = set()
-    all_hrefs = []
+    # Google wraps real result links as /url?q=<encoded>&...
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        all_hrefs.append(href[:120])
         m = re.match(r"^/url\?q=([^&]+)", href)
         if not m:
             if href.startswith("http") and "google.com" not in href:
@@ -130,7 +128,8 @@ def search_google(keyword, location):
             target = urlparse.unquote(m.group(1))
         if target in seen or is_junk(target):
             continue
-        if not any(s in target for s in ["reddit.com", "facebook.com", "nextdoor.com", "craigslist.org"]):
+        # require it to be one of our intent sites
+        if not any(s in target for s in ["reddit.com", "facebook.com/groups", "nextdoor.com", "craigslist.org"]):
             continue
         title = a.get_text()[:160].strip()
         if not title:
@@ -139,12 +138,6 @@ def search_google(keyword, location):
         seen.add(target)
         if len(out) >= 12:
             break
-    # DIAGNOSTIC: if no results, show a sample of hrefs we saw (to see if Google
-    # returned anything at all, or if intent domains are missing from results).
-    if not out and all_hrefs:
-        print(f"DIAG google[{keyword[:30]}]: {len(all_hrefs)} hrefs seen, first non-google 5:")
-        non_g = [h for h in all_hrefs if "google.com" not in h and h.startswith(("http", "/url"))][:5]
-        for h in non_g: print(f"  {h}")
     return out
 
 
