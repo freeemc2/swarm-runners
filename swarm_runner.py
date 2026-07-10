@@ -42,6 +42,7 @@ JUNK = ['yelp.com', 'houzz.com', 'homeadvisor.com', 'angies', 'angi.com',
         'bbb.org', 'thumbtack.com', 'porch.com', 'manta.com', 'yellowpages.com',
         'mapquest.com', 'foursquare.com', 'linkedin.com/jobs',
         'careerbuilder.com', 'snagajob.com']
+INTENT_SITES_LIST = ["reddit.com", "nextdoor.com", "facebook.com/groups", "craigslist.org"]
 INTENT_SITES = "(site:reddit.com OR site:nextdoor.com OR site:facebook.com/groups OR site:craigslist.org)"
 
 
@@ -88,17 +89,34 @@ def submit(job, results, provider_error=False):
 
 # ----- executors -----
 
+def is_intent_site(url):
+    u = (url or "").lower()
+    return any(s in u for s in INTENT_SITES_LIST)
+
+
 def search_ddg(keyword, location):
+    """Per-site fanout: DDG ignores the OR'd site: operator (confirmed 2026-07-08).
+    Issue one query per intent site, merge+dedup by URL. Post-filter ensures only
+    intent-site results survive even if DDG returns commercial junk."""
     from ddgs import DDGS
-    q = f'"{keyword}" {location} {INTENT_SITES}'.strip()
     out = []
-    with DDGS() as d:
-        for r in d.text(q, max_results=15, timelimit="m"):
-            url = r.get("href", "")
-            if is_junk(url):
-                continue
-            out.append({"title": r.get("title", ""), "url": url,
-                        "description": r.get("body", ""), "location": location})
+    seen = set()
+    for site in INTENT_SITES_LIST:
+        q = f'"{keyword}" {location} site:{site}'.strip()
+        try:
+            with DDGS() as d:
+                for r in d.text(q, max_results=8, timelimit="m"):
+                    url = r.get("href", "")
+                    if url in seen or is_junk(url):
+                        continue
+                    if not is_intent_site(url):
+                        continue
+                    seen.add(url)
+                    out.append({"title": r.get("title", ""), "url": url,
+                                "description": r.get("body", ""), "location": location})
+        except Exception as e:
+            print(f"ddg site:{site} error: {e}")
+        time.sleep(random.uniform(1, 3))
     return out
 
 
@@ -163,7 +181,7 @@ def search_google(keyword, location):
             target = urlparse.unquote(m.group(1))
         if target in seen or is_junk(target):
             continue
-        if not any(s in target for s in ["reddit.com", "facebook.com/groups", "nextdoor.com", "craigslist.org"]):
+        if not is_intent_site(target):
             continue
         title = a.get_text()[:160].strip()
         if not title:
