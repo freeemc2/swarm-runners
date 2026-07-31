@@ -1,0 +1,32 @@
+name: Swarm Startpage
+on:
+  schedule:
+    - cron: '*/14 * * * *'
+  workflow_dispatch: {}
+jobs:
+  scrape:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency:
+      group: swarm-startpage-${{ matrix.shard }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: deps
+        run: pip install -q -r requirements.txt
+      - name: run
+        env:
+          MASTER_URL: https://elevatehomeprogram.com
+          AGENT_KEY: ${{ secrets.AGENT_KEY }}
+          PROVIDER: gha-startpage
+          SOURCE: startpage
+          STAGE: search
+          MAX_JOBS: '5'
+          SHARD: ${{ matrix.shard }}
+        run: python swarm_runner.py

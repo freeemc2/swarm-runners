@@ -193,6 +193,105 @@ def search_google(keyword, location):
     return out
 
 
+
+# --------------------------------------------------------------------------- #
+# Lane-1 engines (aria 2026-07-30): widen intake 2 -> 6 search providers.
+# Each is its own PROVIDER so the governor scores them independently and they
+# compete for job budget via yield-weighting + provider_health breaker.
+#   bing      - Microsoft index (independent of Google)
+#   brave     - Brave's own index, privacy-first, tolerant of scraping
+#   startpage - proxies GOOGLE results from a non-Google endpoint
+#   mojeek    - fully independent crawler, genuinely different coverage
+# --------------------------------------------------------------------------- #
+
+ENGINE_CFG = {
+    "bing": {
+        "url": "https://www.bing.com/search?q={q}&count=20",
+        "result_sel": "li.b_algo",
+        "link_sel": "h2 a",
+        "snip_sel": ".b_caption p, .b_algoSlug",
+    },
+    "brave": {
+        "url": "https://search.brave.com/search?q={q}",
+        "result_sel": "div.snippet",
+        "link_sel": "a",
+        "snip_sel": ".snippet-description, .snippet-content",
+    },
+    "startpage": {
+        "url": "https://www.startpage.com/sp/search?query={q}",
+        "result_sel": "div.w-gl__result, div.result",
+        "link_sel": "a.w-gl__result-title, a.result-link, h3 a",
+        "snip_sel": "p.w-gl__description, .description",
+    },
+    "mojeek": {
+        "url": "https://www.mojeek.com/search?q={q}",
+        "result_sel": "li.r, ul.results-standard li",
+        "link_sel": "a.title, h2 a",
+        "snip_sel": "p.s, .s",
+    },
+}
+
+BROWSER_HEADERS = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "none",
+    "sec-fetch-user": "?1",
+    "upgrade-insecure-requests": "1",
+    "user-agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"),
+}
+
+
+def search_html_engine(engine, keyword, location):
+    """Generic HTML-scrape search across the Lane-1 engines. Per-site fanout
+    (same pattern as DDG) so we only keep user-generated intent sites."""
+    from bs4 import BeautifulSoup
+    import urllib.parse as urlparse
+
+    cfg = ENGINE_CFG[engine]
+    out, seen = [], set()
+    sess = requests.Session()
+    sess.headers.update(BROWSER_HEADERS)
+
+    for site in INTENT_SITES_LIST:
+        q = f'"{keyword}" {location} site:{site}'.strip()
+        url = cfg["url"].format(q=urlparse.quote_plus(q))
+        try:
+            resp = sess.get(url, timeout=20)
+            if resp.status_code != 200:
+                print(f"{engine} HTTP {resp.status_code} for site:{site}")
+                time.sleep(random.uniform(2, 5))
+                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for res in soup.select(cfg["result_sel"])[:10]:
+                a = res.select_one(cfg["link_sel"])
+                if not a:
+                    continue
+                href = a.get("href", "")
+                if href.startswith("/"):          # relative -> skip redirect wrappers
+                    continue
+                if not href.startswith("http") or href in seen:
+                    continue
+                if is_junk(href) or not is_intent_site(href):
+                    continue
+                seen.add(href)
+                sn = res.select_one(cfg["snip_sel"])
+                out.append({
+                    "title": a.get_text(strip=True)[:300],
+                    "url": href,
+                    "description": (sn.get_text(" ", strip=True)[:1000] if sn else ""),
+                    "location": location,
+                })
+        except Exception as e:
+            print(f"{engine} site:{site} error: {e}")
+        time.sleep(random.uniform(1.5, 4))        # human pacing per engine
+    return out
+
 def fetch_web(url):
     from bs4 import BeautifulSoup
     resp = requests.get(url, headers={"User-Agent": UA}, timeout=30, allow_redirects=True)
@@ -230,6 +329,8 @@ def main():
             if STAGE == "search":
                 if SOURCE == "google":
                     results = search_google(kw, loc)
+                elif SOURCE in ENGINE_CFG:
+                    results = search_html_engine(SOURCE, kw, loc)
                 else:
                     results = search_ddg(kw, loc)
             elif STAGE == "fetch":
