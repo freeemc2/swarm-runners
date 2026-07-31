@@ -29,6 +29,12 @@ STAGE = os.environ.get("STAGE", "search")
 MAX_JOBS = int(os.environ.get("MAX_JOBS", "3"))
 # Each workflow has its own provider so a DDG runner can't grab a Google job.
 PROVIDER = os.environ.get("PROVIDER", f"gha-{SOURCE}")
+# Lane-2 residential egress (aria 2026-07-31): when SWARM_PROXY is set
+# (e.g. socks5h://127.0.0.1:1055 = tailscale-scraper -> residential exit),
+# every outbound search request egresses from Brian's home IP instead of
+# a datacenter IP. Google/Bing do not suppress residential.
+SWARM_PROXY = os.environ.get("SWARM_PROXY", "").strip()
+PROXIES = {"http": SWARM_PROXY, "https": SWARM_PROXY} if SWARM_PROXY else None
 RUN_ID = os.environ.get("GITHUB_RUN_ID", str(int(time.time())))[-6:]
 NAME = f"{PROVIDER}-{RUN_ID}"
 
@@ -104,7 +110,7 @@ def search_ddg(keyword, location):
     for site in INTENT_SITES_LIST:
         q = f'"{keyword}" {location} site:{site}'.strip()
         try:
-            with DDGS() as d:
+            with DDGS(proxy=SWARM_PROXY or None) as d:
                 for r in d.text(q, max_results=8, timelimit="m"):
                     url = r.get("href", "")
                     if url in seen or is_junk(url):
@@ -157,6 +163,7 @@ def search_google(keyword, location):
     q = f'"{keyword}" {location} {INTENT_SITES}'.strip()
     url = "https://www.google.com/search?" + urlparse.urlencode({"q": q, "num": "20", "hl": "en"})
     sess = requests.Session()
+    if PROXIES: sess.proxies.update(PROXIES)
     # Prime session with a google.com hit so we have real cookies before searching.
     try:
         sess.get("https://www.google.com/", headers=HEADERS, timeout=15)
@@ -256,6 +263,7 @@ def search_html_engine(engine, keyword, location):
     cfg = ENGINE_CFG[engine]
     out, seen = [], set()
     sess = requests.Session()
+    if PROXIES: sess.proxies.update(PROXIES)
     sess.headers.update(BROWSER_HEADERS)
 
     for site in INTENT_SITES_LIST:
@@ -294,7 +302,7 @@ def search_html_engine(engine, keyword, location):
 
 def fetch_web(url):
     from bs4 import BeautifulSoup
-    resp = requests.get(url, headers={"User-Agent": UA}, timeout=30, allow_redirects=True)
+    resp = requests.get(url, headers={"User-Agent": UA}, timeout=30, allow_redirects=True, proxies=PROXIES)
     if resp.status_code != 200:
         print(f"fetch HTTP {resp.status_code} for {url}")
         return None

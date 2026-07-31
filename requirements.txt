@@ -1,3 +1,5 @@
 requests>=2.31
 ddgs>=9.0
 beautifulsoup4>=4.12
+requests[socks]>=2.31
+PySocks>=1.7
