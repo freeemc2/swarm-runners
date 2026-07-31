@@ -339,8 +339,17 @@ def main():
                     results = search_google(kw, loc)
                 elif SOURCE in ENGINE_CFG:
                     results = search_html_engine(SOURCE, kw, loc)
-                else:
+                elif SOURCE == "ddg":
                     results = search_ddg(kw, loc)
+                else:
+                    # HARD FAIL (aria 2026-07-31, Brian's catch): never silently
+                    # fall back to DDG. An unrecognized SOURCE used to collapse
+                    # into DuckDuckGo invisibly -- that is exactly how the whole
+                    # swarm quietly became "DDG only" and cost a week. Fail loud.
+                    raise RuntimeError(
+                        f"unknown SOURCE={SOURCE!r} for provider={PROVIDER!r}; "
+                        f"known: google, ddg, {sorted(ENGINE_CFG)}. "
+                        "Refusing to silently fall back to DDG.")
             elif STAGE == "fetch":
                 f = fetch_web(url)
                 if f:
