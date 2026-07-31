@@ -3,13 +3,17 @@ on:
   schedule:
     - cron: '*/15 * * * *'   # every 15 min — slower because Google is hostile
   workflow_dispatch: {}
-concurrency:
-  group: swarm-google
-  cancel-in-progress: false
 jobs:
   scrape:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     runs-on: ubuntu-latest
     timeout-minutes: 6
+    concurrency:
+      group: swarm-google-${{ matrix.shard }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,5 +27,6 @@ jobs:
           PROVIDER: gha-google
           SOURCE: google
           STAGE: search
-          MAX_JOBS: '8'
+          MAX_JOBS: '4'
+          SHARD: ${{ matrix.shard }}
         run: python swarm_runner.py
